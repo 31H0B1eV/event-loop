@@ -11,6 +11,10 @@ class DummyDriver extends Driver
     public static $id = "a";
 
     public function run() {
+        if (empty($this->defers)) {
+            return;
+        }
+
         while (list($defer, $data) = array_shift($this->defers)) {
             try {
                 $defer(self::$id++, $data);

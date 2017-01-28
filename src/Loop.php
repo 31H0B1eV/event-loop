@@ -15,14 +15,14 @@ use AsyncInterop\Loop\UnsupportedFeatureException;
 final class Loop
 {
     /**
-     * @var DriverFactory
+     * @var DriverFactory|null
      */
-    private static $factory = null;
+    private static $factory;
 
     /**
-     * @var Driver
+     * @var Driver|null
      */
-    private static $driver = null;
+    private static $driver;
 
     /**
      * @var int
@@ -38,18 +38,15 @@ final class Loop
      * The factory will be invoked if none is passed to `Loop::execute`. A default driver will be created to
      * support synchronous waits in traditional applications.
      *
-     * @param DriverFactory|null $factory New factory to replace the previous one.
+     * @param DriverFactory $factory New factory to replace the previous one.
      */
-    public static function setFactory(DriverFactory $factory = null)
+    public static function setFactory(DriverFactory $factory)
     {
         if (self::$level > 0) {
             throw new \RuntimeException("Setting a new factory while running isn't allowed!");
         }
 
         self::$factory = $factory;
-
-        // reset it here, it will be actually instantiated inside execute() or get()
-        self::$driver = null;
     }
 
     /**
@@ -60,21 +57,24 @@ final class Loop
      * error handler or exceptions that would be passed to an error handler but none exists to handle them.
      *
      * @param callable $callback The callback to execute.
-     * @param Driver $driver The event loop driver. If `null`, a new one is created from the set factory.
+     * @param Driver $driver The event loop driver. If `null`, the currently active loop is used (if there is not an
+     *     active loop, a new one is created using the loop factory).
      *
      * @return void
      *
      * @see \AsyncInterop\Loop::setFactory()
      */
-    public static function execute(callable $callback, Driver $driver = null)
+    public static function execute(callable $callback = null, Driver $driver = null)
     {
         $previousDriver = self::$driver;
 
-        self::$driver = $driver ?: self::createDriver();
+        self::$driver = $driver ?: self::get();
         self::$level++;
 
         try {
-            self::$driver->defer($callback);
+            if ($callback) {
+                self::$driver->defer($callback);
+            }
             self::$driver->run();
         } finally {
             self::$driver = $previousDriver;
@@ -89,7 +89,7 @@ final class Loop
      *
      * @throws \Exception If no factory is set or no driver returned from factory.
      */
-    private static function createDriver()
+    public static function createDriver()
     {
         if (self::$factory === null) {
             throw new \Exception("No loop driver factory set; Either pass a driver to Loop::execute or set a factory.");
@@ -103,6 +103,21 @@ final class Loop
         }
 
         return $driver;
+    }
+
+    /**
+     * Resets the driver (sets the internal driver instance to null), forcing the creation of a new driver instance.
+     * This method can only be called if the loop is not running.
+     *
+     * @throws \RuntimeException If the loop is running.
+     */
+    public static function resetDriver()
+    {
+        if (self::$level > 0) {
+            throw new \RuntimeException("Resetting the driver while running isn't allowed!");
+        }
+
+        self::$driver = null;
     }
 
     /**
